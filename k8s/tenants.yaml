@@ -1,0 +1,79 @@
+# Namespace-per-tenant with ResourceQuota
+#
+# Each tenant gets:
+#   - An isolated namespace
+#   - A ResourceQuota capping their CPU, memory, and GPU usage
+#   - A pod label convention: aco/tenant=<name> — the extender reads this
+#     to maintain separate pheromone tables per tenant
+#
+# Apply with:
+#   kubectl apply -f k8s/tenants.yaml
+
+---
+# Tenant: research (low quota — trace replay / HiPC demo)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-research
+  labels:
+    aco/tenant: research
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota
+  namespace: tenant-research
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    requests.nvidia.com/gpu: "2"
+
+---
+# Tenant: prod (higher quota — real workloads)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-prod
+  labels:
+    aco/tenant: prod
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota
+  namespace: tenant-prod
+spec:
+  hard:
+    requests.cpu: "32"
+    requests.memory: 64Gi
+    limits.cpu: "64"
+    limits.memory: 128Gi
+    requests.nvidia.com/gpu: "4"
+
+---
+# Tenant: dev (smallest quota — lightweight testing)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-dev
+  labels:
+    aco/tenant: dev
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota
+  namespace: tenant-dev
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    requests.nvidia.com/gpu: "1"

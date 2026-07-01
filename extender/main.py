@@ -146,10 +146,17 @@ app = FastAPI(
 cost_engine = CostEngine()
 
 # Pheromone state — persists across calls within one process.
-# Dict[node_name, float] — higher = more preferred by past ACO runs.
-_pheromone: Dict[str, float] = {}
+# Keyed by tenant_id so each tenant gets independent ACO learning.
+# Dict[tenant_id, Dict[node_name, float]]
+_pheromone: Dict[str, Dict[str, float]] = {}
 _EVAPORATION = 0.05   # ρ — how much pheromone decays each call
 _DEPOSIT     = 1.0    # Q — reward deposited on chosen node
+
+def _tenant_pheromone(tenant_id: str) -> Dict[str, float]:
+    """Return (and lazily create) the pheromone table for a tenant."""
+    if tenant_id not in _pheromone:
+        _pheromone[tenant_id] = {}
+    return _pheromone[tenant_id]
 
 
 # ── Resource parsing helpers ──────────────────────────────────────────────────
@@ -280,17 +287,17 @@ def _build_job_request(cpu: float, mem: float, gpu_required: bool, workload_type
     )
 
 
-def _evaporate_pheromone(node_names: List[str]) -> None:
-    """Apply pheromone evaporation across all known nodes."""
+def _evaporate_pheromone(table: Dict[str, float], node_names: List[str]) -> None:
+    """Apply pheromone evaporation across all known nodes for one tenant."""
     for name in node_names:
-        _pheromone[name] = _pheromone.get(name, 1.0) * (1 - _EVAPORATION)
-        _pheromone[name] = max(_pheromone[name], 0.01)  # floor
+        table[name] = table.get(name, 1.0) * (1 - _EVAPORATION)
+        table[name] = max(table[name], 0.01)  # floor
 
 
-def _deposit_pheromone(chosen_node: str, score: float) -> None:
+def _deposit_pheromone(table: Dict[str, float], chosen_node: str, score: float) -> None:
     """Reward the chosen node — proportional to how good a choice it was."""
     deposit = _DEPOSIT / max(score, 0.01)
-    _pheromone[chosen_node] = _pheromone.get(chosen_node, 1.0) + deposit
+    table[chosen_node] = table.get(chosen_node, 1.0) + deposit
 
 
 # ── Filter endpoint ───────────────────────────────────────────────────────────
@@ -375,14 +382,16 @@ async def prioritize_nodes(args: ExtenderArgs) -> list:
     if not nodes:
         return []
 
-    # Get workload type hint from pod labels (optional)
+    # Get workload type + tenant from pod labels
     pod_labels = args.Pod.metadata.get("labels", {}) if args.Pod.metadata else {}
     workload_hint = pod_labels.get("aco/workload-type", "batch")
+    tenant_id = pod_labels.get("aco/tenant", "default")
 
     job_request = _build_job_request(cpu, mem, gpu_required, workload_hint)
 
     node_names = [n.name for n in nodes]
-    _evaporate_pheromone(node_names)
+    ph = _tenant_pheromone(tenant_id)
+    _evaporate_pheromone(ph, node_names)
 
     # Score each node
     raw_scores: Dict[str, float] = {}
@@ -394,8 +403,8 @@ async def prioritize_nodes(args: ExtenderArgs) -> list:
             logger.warning("cost_engine.score_node failed for %s: %s", node_info.name, e)
             score = 0.1
 
-        # Multiply by pheromone — ACO learning loop
-        pheromone = _pheromone.get(node_info.name, 1.0)
+        # Multiply by pheromone — ACO learning loop (per-tenant)
+        pheromone = ph.get(node_info.name, 1.0)
         raw_scores[node_info.name] = score * pheromone
 
     # Normalise to 0–10 integer scores
@@ -407,12 +416,12 @@ async def prioritize_nodes(args: ExtenderArgs) -> list:
         k8s_score = int(round((raw / max(max_score, 1e-9)) * 10))
         priorities.append({"Host": name, "Score": k8s_score})
 
-    # Deposit pheromone on the top-scoring node
-    _deposit_pheromone(best_node, best_raw)
+    # Deposit pheromone on the top-scoring node (per-tenant)
+    _deposit_pheromone(ph, best_node, best_raw)
 
     # Update Prometheus metrics
     node_selected_total.labels(node=best_node).inc()
-    for name, val in _pheromone.items():
+    for name, val in ph.items():
         node_pheromone_level.labels(node=name).set(val)
 
     # Record cost of selected node
@@ -449,4 +458,8 @@ async def metrics():
 
 @app.get("/healthz")
 async def health():
-    return {"status": "ok", "pheromone_nodes": len(_pheromone)}
+    return {
+        "status": "ok",
+        "tenants": list(_pheromone.keys()),
+        "pheromone_nodes_per_tenant": {t: len(p) for t, p in _pheromone.items()},
+    }

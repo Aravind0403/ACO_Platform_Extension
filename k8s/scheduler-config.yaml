@@ -1,0 +1,21 @@
+---
+# KubeSchedulerConfiguration tells the K8s scheduler to call our extender
+# during the filter and prioritize phases.
+#
+# Deploy with:
+#   kubectl apply -f k8s/scheduler-config.yaml
+#
+# For minikube: mount this into the scheduler pod via minikube's
+# --extra-config flag (see scripts/minikube-start.sh).
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+clientConnection:
+  kubeconfig: /etc/kubernetes/scheduler.conf
+extenders:
+  - urlPrefix: "http://aco-extender.aco-system.svc.cluster.local:8080"
+    filterVerb: "filter"
+    prioritizeVerb: "prioritize"
+    weight: 5          # How much our scores are weighted vs default scheduler
+    enableHTTPS: false
+    nodeCacheCapable: false
+    ignorable: true    # If extender is down, K8s falls back to default scoring

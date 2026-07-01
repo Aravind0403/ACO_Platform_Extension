@@ -1,0 +1,60 @@
+---
+# Namespace for all ACO system components
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aco-system
+
+---
+# Deployment: runs the ACO scheduler extender FastAPI service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aco-extender
+  namespace: aco-system
+  labels:
+    app: aco-extender
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aco-extender
+  template:
+    metadata:
+      labels:
+        app: aco-extender
+    spec:
+      containers:
+        - name: aco-extender
+          image: aco-extender:latest     # built locally via: docker build -f extender/Dockerfile .
+          imagePullPolicy: IfNotPresent  # use local image in minikube
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+---
+# Service: exposes the extender inside the cluster
+# K8s scheduler calls this URL from scheduler-config.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: aco-extender
+  namespace: aco-system
+spec:
+  selector:
+    app: aco-extender
+  ports:
+    - port: 8080
+      targetPort: 8080

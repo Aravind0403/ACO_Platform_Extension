@@ -18,6 +18,7 @@ build/
 *.tfstate.backup
 *.tfplan
 .terraform.lock.hcl
+terraform/terraform.tfvars
 
 # K8s secrets
 *-secret.yaml

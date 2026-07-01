@@ -240,7 +240,6 @@ def _node_to_state(node_info: NodeInfo) -> NodeState:
 
     # Instance type — default on-demand
     pricing_str = labels.get("aco/instance-type", "on_demand")
-    pricing = PricingModel.SPOT if pricing_str == "spot" else PricingModel.ON_DEMAND
 
     # Cost — default to a sensible mid-tier on-demand price
     cost_per_hour = float(labels.get("aco/cost-per-hour", "0.50"))
@@ -281,7 +280,7 @@ def _build_job_request(cpu: float, mem: float, gpu_required: bool, workload_type
             cpu_cores_min=max(cpu, 0.1),
             memory_gb_min=max(mem, 0.1),
             gpu_required=gpu_required,
-            gpu_count=1 if gpu_required else 0,
+            gpu_count=1 if gpu_required else 1,  # model requires >= 1; irrelevant when gpu_required=False
         ),
         priority=90 if wt == WorkloadType.LATENCY_CRITICAL else 50,
     )
@@ -455,6 +454,26 @@ async def metrics():
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
+
+@app.post("/reset")
+async def reset(tenant: str = None):
+    """
+    Reset pheromone state so the next demo run starts fresh.
+
+    - POST /reset          → clears all tenants
+    - POST /reset?tenant=X → clears only tenant X
+
+    Grafana history stays intact (Prometheus keeps its own TSDB).
+    This only resets the in-memory ACO learning state in the extender.
+    """
+    if tenant:
+        removed = _pheromone.pop(tenant, {})
+        return {"reset": "tenant", "tenant": tenant, "nodes_cleared": len(removed)}
+    else:
+        counts = {t: len(p) for t, p in _pheromone.items()}
+        _pheromone.clear()
+        return {"reset": "all", "tenants_cleared": counts}
+
 
 @app.get("/healthz")
 async def health():

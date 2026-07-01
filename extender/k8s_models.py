@@ -85,9 +85,10 @@ class HostPriority(BaseModel):
     Score: int   # 0–10
 
 
-class HostPriorityList(BaseModel):
+from pydantic import RootModel
+
+class HostPriorityList(RootModel[List[HostPriority]]):
     """Response to /prioritize — list of (node, score) pairs."""
-    __root__: List[HostPriority]
 
     def __iter__(self):
-        return iter(self.__root__)
+        return iter(self.root)

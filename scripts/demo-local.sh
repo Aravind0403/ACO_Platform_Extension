@@ -29,7 +29,7 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
     done
     echo "==> Stopping Docker services..."
-    (cd observability && docker-compose down -v) 2>/dev/null || true
+    (cd observability && $DOCKER_COMPOSE down -v) 2>/dev/null || true
     echo "Done."
 }
 trap cleanup EXIT INT TERM
@@ -39,14 +39,14 @@ echo "==> Checking dependencies..."
 command -v python3    >/dev/null || { echo "python3 not found"; exit 1; }
 command -v uvicorn    >/dev/null || { echo "uvicorn not found — run: pip install uvicorn fastapi prometheus-client pydantic numpy"; exit 1; }
 command -v docker     >/dev/null || { echo "docker not found"; exit 1; }
-command -v docker-compose >/dev/null 2>&1 || \
-  docker compose version  >/dev/null 2>&1 || { echo "docker-compose not found"; exit 1; }
+DOCKER_COMPOSE="docker compose"
+command -v docker-compose >/dev/null 2>&1 && DOCKER_COMPOSE="docker-compose"
 echo "    OK"
 
 # ── 2. Start Prometheus + Grafana ────────────────────────────────────────────
 echo "==> Starting Prometheus + Grafana..."
 cd observability
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 cd "$REPO_ROOT"
 echo "    Prometheus: http://localhost:9090"
 echo "    Grafana:    http://localhost:3000  (admin / admin)"

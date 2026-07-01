@@ -1,0 +1,163 @@
+{
+  "title": "ACO Scheduler — Platform Extension",
+  "uid": "aco-scheduler-v1",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scheduling Requests / sec",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(aco_scheduling_requests_total{endpoint='prioritize'}[1m])",
+          "legendFormat": "prioritize req/s"
+        },
+        {
+          "expr": "rate(aco_scheduling_requests_total{endpoint='filter'}[1m])",
+          "legendFormat": "filter req/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 2,
+      "title": "P99 Scheduling Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(aco_scheduling_latency_seconds_bucket{endpoint='prioritize'}[1m])) * 1000",
+          "legendFormat": "P99 latency (ms)"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(aco_scheduling_latency_seconds_bucket{endpoint='prioritize'}[1m])) * 1000",
+          "legendFormat": "P50 latency (ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Node Selection Rate (routing %)",
+      "description": "Which nodes the ACO engine is routing jobs to. Converging pheromone trails → one node dominates.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(aco_node_selected_total[1m])",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Pheromone Level per Node",
+      "description": "Higher pheromone = node was preferred in past scheduling decisions. Watch these converge over time — that's ACO learning.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "aco_node_pheromone_level",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Cost per Job ($/hr of selected node)",
+      "description": "As ACO learns, it should route more jobs to lower-cost nodes. Watch average cost drop over time.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(aco_scheduling_cost_usd_per_hour_bucket[2m]))",
+          "legendFormat": "median $/hr"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(aco_scheduling_cost_usd_per_hour_bucket[2m]))",
+          "legendFormat": "p95 $/hr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Filter Rejection Rate",
+      "description": "Nodes rejected at the filter stage (insufficient CPU/memory/GPU). High rate = cluster is saturated.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(aco_nodes_filtered_total[1m])",
+          "legendFormat": "filtered nodes/s"
+        },
+        {
+          "expr": "rate(aco_nodes_passed_filter_total[1m])",
+          "legendFormat": "passed nodes/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Current Pheromone — Bar Chart",
+      "description": "Snapshot of pheromone state across all nodes right now.",
+      "type": "bargauge",
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "aco_node_pheromone_level",
+          "legendFormat": "{{node}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 2 },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    }
+  ]
+}

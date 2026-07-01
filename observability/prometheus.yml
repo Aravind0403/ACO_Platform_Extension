@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s      # How often Prometheus pulls metrics
+  evaluation_interval: 15s  # How often rules are evaluated
+
+scrape_configs:
+  # Scrape the ACO extender's /metrics endpoint
+  - job_name: "aco-extender"
+    static_configs:
+      - targets:
+          # Local dev (extender running on host, Prometheus in Docker):
+          - "host.docker.internal:8080"
+          # In-cluster (minikube / GKE) — uncomment and remove above:
+          # - "aco-extender.aco-system.svc.cluster.local:8080"
+    metrics_path: /metrics
+
+  # Scrape Prometheus itself (useful for debugging)
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -86,6 +86,57 @@ from extender.k8s_models import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+# ── Prometheus metrics ────────────────────────────────────────────────────────
+# These are scraped by Prometheus every 15s and shown in Grafana.
+
+# How many scheduling calls we've handled total
+scheduling_requests_total = Counter(
+    "aco_scheduling_requests_total",
+    "Total number of scheduling requests handled by the extender",
+    ["endpoint"],  # 'filter' or 'prioritize'
+)
+
+# How long each prioritize call takes (ACO scoring is the interesting part)
+scheduling_latency_seconds = Histogram(
+    "aco_scheduling_latency_seconds",
+    "Scheduling latency per request",
+    ["endpoint"],
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+)
+
+# How many nodes were filtered out vs passed through
+nodes_filtered_total = Counter(
+    "aco_nodes_filtered_total",
+    "Nodes vetoed by the filter endpoint (insufficient resources)",
+)
+
+nodes_passed_filter_total = Counter(
+    "aco_nodes_passed_filter_total",
+    "Nodes passed through filter to prioritize",
+)
+
+# Per-node pheromone level — lets Grafana show the heatmap
+# Label: node_name
+node_pheromone_level = Gauge(
+    "aco_node_pheromone_level",
+    "Current pheromone level for each node (ACO learning state)",
+    ["node"],
+)
+
+# Which node was selected (won the prioritize round)
+node_selected_total = Counter(
+    "aco_node_selected_total",
+    "Number of times each node was selected as best by the ACO scorer",
+    ["node"],
+)
+
+# Cost of the winning node per scheduling call
+scheduling_cost_usd = Histogram(
+    "aco_scheduling_cost_usd_per_hour",
+    "Cost per hour of the node selected for each job",
+    buckets=[0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0],
+)
+
 app = FastAPI(
     title="ACO Scheduler Extender",
     description="Kubernetes scheduler extender powered by Ant Colony Optimisation.",
@@ -286,6 +337,9 @@ async def filter_nodes(args: ExtenderArgs) -> ExtenderFilterResult:
 
         viable.append(node_info)
 
+    scheduling_requests_total.labels(endpoint="filter").inc()
+    nodes_filtered_total.inc(len(failed))
+    nodes_passed_filter_total.inc(len(viable))
     logger.info("filter: %d viable, %d rejected", len(viable), len(failed))
     return ExtenderFilterResult(
         Nodes=NodeList(items=viable),
@@ -312,6 +366,9 @@ async def prioritize_nodes(args: ExtenderArgs) -> list:
     The pheromone feedback means: nodes that score well now will be visited
     more often in future calls. This is the ACO learning loop.
     """
+    t0 = time.perf_counter()
+    scheduling_requests_total.labels(endpoint="prioritize").inc()
+
     cpu, mem, gpu_required = _pod_resources(args)
     nodes = args.Nodes.items if args.Nodes else []
 
@@ -353,11 +410,39 @@ async def prioritize_nodes(args: ExtenderArgs) -> list:
     # Deposit pheromone on the top-scoring node
     _deposit_pheromone(best_node, best_raw)
 
+    # Update Prometheus metrics
+    node_selected_total.labels(node=best_node).inc()
+    for name, val in _pheromone.items():
+        node_pheromone_level.labels(node=name).set(val)
+
+    # Record cost of selected node
+    best_node_info = next((n for n in nodes if n.name == best_node), None)
+    if best_node_info:
+        labels = best_node_info.labels or {}
+        cost = float(labels.get("aco/cost-per-hour", "0.50"))
+        scheduling_cost_usd.observe(cost)
+
+    elapsed = time.perf_counter() - t0
+    scheduling_latency_seconds.labels(endpoint="prioritize").observe(elapsed)
+
     logger.info(
-        "prioritize: %d nodes scored — best=%s (raw=%.4f, pheromone=%.4f)",
-        len(priorities), best_node, best_raw, _pheromone.get(best_node, 1.0),
+        "prioritize: %d nodes scored — best=%s (raw=%.4f, pheromone=%.4f, latency=%.3fms)",
+        len(priorities), best_node, best_raw, _pheromone.get(best_node, 1.0), elapsed * 1000,
     )
     return priorities
+
+
+# ── Prometheus metrics endpoint ───────────────────────────────────────────────
+
+@app.get("/metrics")
+async def metrics():
+    """
+    Prometheus scrape endpoint. Expose all registered metrics in text format.
+
+    Scraped by Prometheus every 15s (configured in observability/prometheus.yml).
+    Grafana queries Prometheus to render the dashboard panels.
+    """
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

@@ -1,0 +1,7 @@
+In _layouts/home.html, replace this line:
+
+    <p class="about-blurb">Infrastructure and ML serving.<br>Seven years across Microsoft and Amazon.</p>
+
+With:
+
+    <p class="about-blurb">Distributed systems and scheduling research.<br>Seven years across Microsoft and Amazon.</p>

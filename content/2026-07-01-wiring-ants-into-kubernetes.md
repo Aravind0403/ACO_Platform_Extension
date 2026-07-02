@@ -134,9 +134,13 @@ Neither of these failures shows up until you run the actual scheduling loop. Bot
 
 The local demo runs six simulated nodes across two CPU and four GPU tiers, with three tenants (research, prod, dev) submitting nine workload patterns over a trace replay loop.
 
-The pheromone bar chart is the clearest signal. At session start, all six nodes sit near the TAU_MIN floor. Within 20–30 scheduling calls, the colony has converged: the T4 node dominates for latency-critical workloads, the A10 picks up the GPU training runs, the CPU nodes handle the lightweight API traffic. The trails are narrow and stable.
+The pheromone time series is the clearest signal. At session start, all six nodes sit near the TAU_MIN floor. Within 20–30 scheduling calls, the colony has converged: the A10 node dominates (pheromone ~6.8), CPU and T4 settle in the mid-tier (~5), V100 and P100 sit near zero. The hierarchy is learned from placement outcomes — not configured.
 
-The cost/job panel tells the same story with dollars. Early in the session — before the colony has formed preferences — the scheduler occasionally places on the V100 ($3.20/hr) when the T4 ($0.45/hr) would have passed all constraints. After convergence, that doesn't happen. The colony has learnt the cost gradient.
+![Pheromone convergence — colony stabilises within 25 scheduling calls](https://raw.githubusercontent.com/Aravind0403/ACO_Platform_Extension/main/docs/grafana-pheromone.png)
+
+The left half (blank) is before trace replay starts. The lines appear at the reset boundary, then diverge sharply. Colony goes from no information to a stable preference in under 5 minutes.
+
+The cost/job panel tells the same story with dollars. Early in the session, the scheduler occasionally places on the V100 ($3.20/hr) when the A10 ($1.20/hr) would have passed all constraints. After convergence, that doesn't happen. The colony learnt the cost gradient without any explicit cost rule — it emerged from reinforcement.
 
 The P99 latency panel: flat at sub-millisecond throughout. The ACO scoring loop, pheromone updates, and Prometheus metric writes all complete within the scheduling call window. The extender adds no perceptible latency to pod placement.
 

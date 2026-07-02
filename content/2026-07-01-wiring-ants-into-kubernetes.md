@@ -28,6 +28,8 @@ The Substack series ([Part 1 here](https://aravindsundaresan.substack.com/p/your
 
 This post is about what happened when we tried to make it run on a real Kubernetes cluster.
 
+![ACO Platform Extension — Architecture](https://raw.githubusercontent.com/Aravind0403/ACO_Platform_Extension/main/docs/architecture.svg)
+
 ---
 
 ## The Protocol Nobody Talks About
